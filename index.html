@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+<title>Oil Intelligence Pro+</title>
+
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+<style>
+*{
+  margin:0;
+  padding:0;
+  box-sizing:border-box;
+  font-family:'Inter',sans-serif;
+  user-select:none;
+}
+
+body{
+  background:#0b0c10;
+  display:flex;
+  justify-content:center;
+  padding:20px;
+  color:white;
+}
+
+.app{
+  width:100%;
+  max-width:420px;
+}
+
+.header{
+  text-align:center;
+  margin-bottom:15px;
+}
+
+.header h1{
+  font-size:24px;
+  font-weight:700;
+}
+
+.card{
+  background:rgba(255,255,255,0.08);
+  backdrop-filter:blur(20px);
+  border-radius:18px;
+  padding:16px;
+  margin-bottom:12px;
+  border:1px solid rgba(255,255,255,0.1);
+}
+
+button{
+  width:100%;
+  padding:12px;
+  margin-top:10px;
+  border:none;
+  border-radius:12px;
+  font-weight:600;
+  cursor:pointer;
+}
+
+.primary{background:#00a8ff;color:white;}
+.danger{background:#ff3b30;color:white;}
+
+.badge{
+  padding:4px 10px;
+  border-radius:999px;
+  font-size:10px;
+  font-weight:600;
+}
+
+.safe{background:#1dd1a1;color:black;}
+
+.engine-wrap{
+  height:14px;
+  background:#222;
+  border-radius:999px;
+  overflow:hidden;
+  margin-top:10px;
+}
+
+.engine{
+  height:100%;
+  width:0%;
+  background:linear-gradient(90deg,#1dd1a1,#feca57,#ff6b6b);
+  transition:0.5s ease;
+}
+
+.small{font-size:12px;opacity:0.7;}
+
+.flex{display:flex;justify-content:space-between;align-items:center;}
+
+.history-card{
+  background:rgba(255,255,255,0.06);
+  border-radius:14px;
+  padding:12px;
+  margin-bottom:10px;
+  border:1px solid rgba(255,255,255,0.08);
+  font-size:12px;
+}
+
+.footer{text-align:center;font-size:11px;opacity:0.6;margin-top:10px;}
+</style>
+</head>
+
+<body>
+
+<div class="app">
+
+  <div class="header">
+    <h1>Oil Intelligence Pro+</h1>
+    <p class="small">SMART OIL TRACKING SYSTEM</p>
+  </div>
+
+  <div class="card">
+    <div class="flex">
+      <div>
+        <b>🛢️ Shell Advance AX7 10W-40</b>
+        <div class="small">Semi Synthetic • Harian</div>
+      </div>
+      <div class="badge safe">AMAN</div>
+    </div>
+
+    <div style="margin-top:10px">
+      KM: <b id="km">0</b><br>
+      Sisa: <b id="sisa">3000</b> km
+    </div>
+
+    <div class="engine-wrap">
+      <div class="engine" id="engine"></div>
+    </div>
+
+    <div class="small" id="gps">📡 GPS: Menunggu...</div>
+    <div class="small" id="point">📡 POINT: 0</div>
+  </div>
+
+  <div class="card">
+    <button class="primary" onclick="startGPS()">📡 Start Tracking</button>
+    <button class="danger" onclick="stopTracking('MANUAL_STOP')">⛔ Stop Manual</button>
+    <button class="danger" onclick="resetOli()">🛢️ Reset Oli</button>
+  </div>
+
+  <div class="card">
+    <b class="small">📍 History Perjalanan</b>
+    <div id="history"></div>
+  </div>
+
+  <div class="footer">
+    © 2026 Tracking System
+  </div>
+
+</div>
+
+<script>
+
+const SUPABASE_URL = "https://wepqievfgfqsoilynrhc.supabase.co";
+const SUPABASE_KEY = "sb_publishable_AUDqRGYqJi1pA7Y_QOIa-A_bIz-_zI1.";
+const TABLE = "oil_logs";
+const LIMIT = 3000;
+
+let totalKm = 0;
+let lastLat=null,lastLng=null;
+let watchId;
+let isStopped=false;
+let lastMoveTime=Date.now();
+
+let point=0;
+let speedSum=0,speedCount=0;
+
+let sessionId = localStorage.getItem("session_id") || crypto.randomUUID();
+localStorage.setItem("session_id",sessionId);
+
+/* ================= GPS PERMISSION FIX ================= */
+async function askPermission(){
+  return new Promise((res,rej)=>{
+    navigator.geolocation.getCurrentPosition(res,rej);
+  });
+}
+
+/* ================= START ================= */
+window.startGPS = async function(){
+
+  try{
+    await askPermission(); // 🔥 FORCE POPUP IZIN
+  }catch(e){
+    document.getElementById("gps").innerText="❌ Izin lokasi ditolak";
+    return;
+  }
+
+  isStopped=false;
+  document.getElementById("gps").innerText="📡 Tracking aktif...";
+
+  watchId = navigator.geolocation.watchPosition(pos=>{
+
+    let lat=pos.coords.latitude;
+    let lng=pos.coords.longitude;
+    let speed=(pos.coords.speed||0)*3.6;
+
+    point++;
+    document.getElementById("point").innerText="📡 POINT: "+point;
+
+    document.getElementById("gps").innerHTML=
+      `LAT:${lat.toFixed(6)}<br>LNG:${lng.toFixed(6)}<br>SPEED:${speed.toFixed(1)} km/h`;
+
+    if(lastLat){
+
+      let d=calcDistance(lastLat,lastLng,lat,lng);
+
+      if(d>0.0005){
+        totalKm+=d;
+        render();
+      }
+    }
+
+    lastLat=lat;
+    lastLng=lng;
+
+  },err=>{
+    document.getElementById("gps").innerText="❌ GPS ERROR";
+  },{
+    enableHighAccuracy:true
+  });
+};
+
+/* ================= STOP (AUTO + MANUAL SAMA) ================= */
+window.stopTracking = async function(reason){
+
+  if(isStopped) return;
+  isStopped=true;
+
+  navigator.geolocation.clearWatch(watchId);
+
+  document.getElementById("gps").innerText="⛔ STOP: "+reason;
+
+  await sendFinal(reason);
+  await sendWhatsApp(reason);
+  loadHistory();
+};
+
+/* ================= FINAL DATA ================= */
+async function sendFinal(reason){
+
+  await fetch(`${SUPABASE_URL}/rest/v1/${TABLE}?session_id=eq.${sessionId}`,{
+    method:"PATCH",
+    headers:{
+      "apikey":SUPABASE_KEY,
+      "Authorization":"Bearer "+SUPABASE_KEY,
+      "Content-Type":"application/json"
+    },
+    body:JSON.stringify({
+      km:totalKm,
+      status:reason,
+      end_time:new Date().toISOString()
+    })
+  });
+}
+
+/* ================= WHATSAPP ================= */
+function sendWhatsApp(reason){
+
+  let msg = `🛢️ REPORT OIL\nKM: ${totalKm.toFixed(2)}\nSTATUS: ${reason}\nSESSION: ${sessionId}`;
+
+  let url = "https://wa.me/?text="+encodeURIComponent(msg);
+
+  window.open(url,"_blank");
+}
+
+/* ================= HISTORY ================= */
+async function loadHistory(){
+
+  let res=await fetch(`${SUPABASE_URL}/rest/v1/${TABLE}?select=*&order=created_at.desc&limit=10`,{
+    headers:{
+      "apikey":SUPABASE_KEY,
+      "Authorization":"Bearer "+SUPABASE_KEY
+    }
+  });
+
+  let data=await res.json();
+
+  document.getElementById("history").innerHTML=
+    data.map(d=>`
+      <div class="history-card">
+        KM:${d.km}<br>
+        STATUS:${d.status}<br>
+        ${new Date(d.created_at).toLocaleString()}
+      </div>
+    `).join("");
+}
+
+/* ================= DISTANCE ================= */
+function calcDistance(a,b,c,d){
+  const R=6371;
+  let dLat=(c-a)*Math.PI/180;
+  let dLon=(d-b)*Math.PI/180;
+
+  let x=Math.sin(dLat/2)**2+
+    Math.cos(a*Math.PI/180)*Math.cos(c*Math.PI/180)*
+    Math.sin(dLon/2)**2;
+
+  return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));
+}
+
+/* ================= UI ================= */
+function render(){
+  document.getElementById("km").innerText=totalKm.toFixed(2);
+  document.getElementById("sisa").innerText=(LIMIT-totalKm).toFixed(0);
+  document.getElementById("engine").style.width=(totalKm/LIMIT*100)+"%";
+}
+
+/* ================= RESET ================= */
+window.resetOli=function(){
+  totalKm=0;
+  render();
+};
+
+render();
+loadHistory();
+
+</script>
+
+</body>
+</html>
