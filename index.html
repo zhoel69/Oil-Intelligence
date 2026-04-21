@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+<title>Oil Intelligence Pro+</title>
+
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+<style>
+*{
+  margin:0;
+  padding:0;
+  box-sizing:border-box;
+  font-family:'Inter',sans-serif;
+  user-select:none;
+}
+
+body{
+  background:#0b0c10;
+  display:flex;
+  justify-content:center;
+  padding:20px;
+  color:white;
+}
+
+.app{
+  width:100%;
+  max-width:420px;
+}
+
+.header{
+  text-align:center;
+  margin-bottom:15px;
+}
+
+.header h1{
+  font-size:24px;
+  font-weight:700;
+}
+
+.card{
+  background:rgba(255,255,255,0.08);
+  backdrop-filter:blur(20px);
+  border-radius:18px;
+  padding:16px;
+  margin-bottom:12px;
+  border:1px solid rgba(255,255,255,0.1);
+}
+
+button{
+  width:100%;
+  padding:12px;
+  margin-top:10px;
+  border:none;
+  border-radius:12px;
+  font-weight:600;
+  cursor:pointer;
+}
+
+.primary{background:#00a8ff;color:white;}
+.danger{background:#ff3b30;color:white;}
+
+/* 🔥 BADGE DIPERKECIL & LEBIH ELEGAN */
+.badge{
+  padding:4px 10px;
+  border-radius:999px;
+  font-size:10px;
+  font-weight:600;
+  letter-spacing:0.3px;
+}
+
+.safe{background:#1dd1a1;color:black;}
+.warn{background:#feca57;color:black;}
+.dangerStatus{background:#ff6b6b;color:white;}
+
+.engine-wrap{
+  height:14px;
+  background:#222;
+  border-radius:999px;
+  overflow:hidden;
+  margin-top:10px;
+}
+
+.engine{
+  height:100%;
+  width:0%;
+  background:linear-gradient(90deg,#1dd1a1,#feca57,#ff6b6b);
+  transition:0.5s ease;
+}
+
+.small{
+  font-size:12px;
+  opacity:0.7;
+}
+
+.flex{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
+
+.history-card{
+  background:rgba(255,255,255,0.06);
+  border-radius:14px;
+  padding:12px;
+  margin-bottom:10px;
+  border:1px solid rgba(255,255,255,0.08);
+  font-size:12px;
+}
+
+.footer{
+  text-align:center;
+  font-size:11px;
+  opacity:0.6;
+  margin-top:10px;
+  padding-bottom:10px;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+</style>
+</head>
+
+<body>
+
+<div class="app">
+
+  <div class="header">
+    <h1>Oil Intelligence Pro+</h1>
+    <p class="small">SMART OIL TRACKING SYSTEM</p>
+  </div>
+
+  <!-- STATUS -->
+  <div class="card">
+
+    <div class="flex">
+      <div>
+        <b id="oilName">🛢️ Shell Advance AX7 10W-40</b>
+        <div class="small">Semi Synthetic • Harian</div>
+      </div>
+      <div id="status" class="badge safe">AMAN</div>
+    </div>
+
+    <div style="margin-top:10px">
+      KM: <b id="km">0</b><br>
+      Sisa: <b id="sisa">3000</b> km
+    </div>
+
+    <div class="engine-wrap">
+      <div class="engine" id="engine"></div>
+    </div>
+
+    <div id="warning" class="small"></div>
+    <div class="small" id="gps">📡 GPS: Menunggu...</div>
+    <div class="small" id="estimasi">⏳ Estimasi ±25 hari</div>
+
+  </div>
+
+  <!-- CONTROL -->
+  <div class="card">
+
+    <button class="primary" onclick="startGPS()">📡 Start Tracking</button>
+    <button class="danger" onclick="resetOli()">🛢️ Reset Oli</button>
+
+  </div>
+
+  <!-- HISTORY -->
+  <div class="card">
+    <b class="small">📍 History Perjalanan</b>
+    <div id="history"></div>
+  </div>
+
+  <div class="footer">
+    © 2026 Tracking System • Zulfahmi Afnula
+  </div>
+
+</div>
+
+<script>
+
+/* ================= CONFIG ================= */
+const SUPABASE_URL = "https://wepqievfgfqsoilynrhc.supabase.co";
+const SUPABASE_KEY = "sb_publishable_AUDqRGYqJi1pA7Y_QOIa-A_bIz-_zI1.";
+const TABLE = "oil_logs";
+
+const LIMIT = 3000;
+const MAX_HARI = 25;
+
+const IDLE_LIMIT = 180000; // 3 menit
+const STOP_LIMIT = 300000; // 5 menit
+
+let totalKm = 0;
+let lastLat = null;
+let lastLng = null;
+let watchId = null;
+
+let lastMoveTime = Date.now();
+let lastSave = 0;
+let isStopped = false;
+
+/* ================= START GPS ================= */
+window.startGPS = function(){
+
+  isStopped = false;
+  lastMoveTime = Date.now();
+
+  document.getElementById("gps").innerText = "📡 GPS aktif...";
+
+  watchId = navigator.geolocation.watchPosition(async (pos)=>{
+
+    const lat = pos.coords.latitude;
+    const lng = pos.coords.longitude;
+    const speed = pos.coords.speed || 0;
+
+    document.getElementById("gps").innerText =
+      `📍 ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+
+    if(lastLat !== null){
+
+      const dist = calcDistance(lastLat,lastLng,lat,lng);
+
+      // 🔥 FILTER NOISE LEBIH KETAT
+      if(dist > 0.01 && dist < 2){
+
+        totalKm += dist;
+        lastMoveTime = Date.now();
+
+        render();
+        debounceSave("MOVING");
+      }
+    }
+
+    lastLat = lat;
+    lastLng = lng;
+
+    smartIdle();
+
+  },{
+    enableHighAccuracy:true,
+    maximumAge:1000
+  });
+};
+
+/* ================= SMART IDLE ================= */
+function smartIdle(){
+
+  const idle = Date.now() - lastMoveTime;
+
+  if(isStopped) return;
+
+  // 3 menit idle
+  if(idle > IDLE_LIMIT){
+    stopTracking("IDLE 3 MENIT");
+  }
+
+  // 5 menit benar-benar stop
+  if(idle > STOP_LIMIT){
+    stopTracking("STOP 5 MENIT");
+  }
+
+  if(totalKm >= LIMIT){
+    stopTracking("LIMIT OLI TERCAPAI");
+  }
+}
+
+/* ================= STOP SYSTEM ================= */
+async function stopTracking(reason){
+
+  if(isStopped) return;
+  isStopped = true;
+
+  if(!watchId) return;
+
+  navigator.geolocation.clearWatch(watchId);
+  watchId = null;
+
+  await saveCloud(reason);
+
+  const now = new Date();
+
+  document.getElementById("history").innerHTML =
+    `
+    <div class="history-card">
+      🚗 ${totalKm.toFixed(2)} km<br>
+      ⚠️ ${reason}<br>
+      📅 ${now.toLocaleString()}
+    </div>
+  ` + document.getElementById("history").innerHTML;
+
+  document.getElementById("gps").innerText = "🛑 STOP: " + reason;
+}
+
+/* ================= DEBOUNCE SAVE ================= */
+function debounceSave(status){
+
+  const now = Date.now();
+  if(now - lastSave < 5000) return;
+
+  lastSave = now;
+  saveCloud(status);
+}
+
+/* ================= SUPABASE ================= */
+async function saveCloud(status){
+
+  try{
+    await fetch(`${SUPABASE_URL}/rest/v1/${TABLE}`,{
+      method:"POST",
+      headers:{
+        "apikey":SUPABASE_KEY,
+        "Authorization":"Bearer "+SUPABASE_KEY,
+        "Content-Type":"application/json"
+      },
+      body:JSON.stringify({
+        km: totalKm,
+        status: status,
+        created_at: new Date().toISOString()
+      })
+    });
+  }catch(e){
+    console.log(e);
+  }
+}
+
+/* ================= DISTANCE ================= */
+function calcDistance(lat1,lon1,lat2,lon2){
+
+  const R = 6371;
+  const dLat = (lat2-lat1)*Math.PI/180;
+  const dLon = (lon2-lon1)*Math.PI/180;
+
+  const a =
+    Math.sin(dLat/2)**2 +
+    Math.cos(lat1*Math.PI/180) *
+    Math.cos(lat2*Math.PI/180) *
+    Math.sin(dLon/2)**2;
+
+  return R * 2 * Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+
+/* ================= RESET ================= */
+window.resetOli = function(){
+  totalKm = 0;
+  render();
+};
+
+/* ================= UI ================= */
+function render(){
+
+  let sisa = LIMIT - totalKm;
+  if(sisa < 0) sisa = 0;
+
+  document.getElementById("km").innerText = totalKm.toFixed(2);
+  document.getElementById("sisa").innerText = sisa.toFixed(2);
+
+  let percent = Math.min((totalKm/LIMIT)*100,100);
+  document.getElementById("engine").style.width = percent + "%";
+
+  let hari = Math.max(1, Math.ceil((sisa/LIMIT)*MAX_HARI));
+  document.getElementById("estimasi").innerText =
+    "⏳ Estimasi ± " + hari + " hari";
+
+  let status = document.getElementById("status");
+
+  if(sisa > 700){
+    status.innerText="AMAN";
+    status.className="badge safe";
+  } else if(sisa > 200){
+    status.innerText="HAMPIR";
+    status.className="badge warn";
+  } else {
+    status.innerText="KRITIS";
+    status.className="badge dangerStatus";
+  }
+}
+
+</script>
+
+</body>
+</html>
