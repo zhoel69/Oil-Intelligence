@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+<title>Oil Intelligence Pro+</title>
+
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+<style>
+*{
+  margin:0;
+  padding:0;
+  box-sizing:border-box;
+  font-family:'Inter', sans-serif;
+  user-select:none;
+}
+
+body{
+  background:#0b0c10;
+  display:flex;
+  justify-content:center;
+  padding:20px;
+  color:white;
+}
+
+.app{
+  width:100%;
+  max-width:420px;
+}
+
+.header{
+  text-align:center;
+  margin-bottom:15px;
+}
+
+.header h1{
+  font-size:24px;
+  font-weight:700;
+}
+
+.card{
+  background:rgba(255,255,255,0.08);
+  backdrop-filter:blur(20px);
+  border-radius:18px;
+  padding:16px;
+  margin-bottom:12px;
+  border:1px solid rgba(255,255,255,0.1);
+}
+
+input{
+  width:100%;
+  padding:12px;
+  border-radius:12px;
+  border:none;
+  margin-top:8px;
+  outline:none;
+}
+
+button{
+  width:100%;
+  padding:12px;
+  margin-top:10px;
+  border:none;
+  border-radius:12px;
+  font-weight:600;
+  cursor:pointer;
+}
+
+.primary{ background:#00a8ff; color:white; }
+.danger{ background:#ff3b30; color:white; }
+
+.badge{
+  padding:6px 12px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:600;
+}
+
+.safe{ background:#1dd1a1; color:black; }
+.warn{ background:#feca57; color:black; }
+.dangerStatus{ background:#ff6b6b; color:white; }
+
+/* ENGINE CINEMATIC */
+.engine-wrap{
+  height:14px;
+  background:#222;
+  border-radius:999px;
+  overflow:hidden;
+  margin-top:10px;
+}
+
+.engine{
+  height:100%;
+  width:0%;
+  background:linear-gradient(90deg,#1dd1a1,#feca57,#ff6b6b);
+  transition:0.6s ease;
+  filter:drop-shadow(0 0 10px rgba(0,255,200,0.4));
+}
+
+.small{
+  font-size:12px;
+  opacity:0.7;
+}
+
+.flex{
+  display:flex;
+  justify-content:space-between;
+}
+</style>
+</head>
+
+<body>
+
+<div class="app">
+
+  <div class="header">
+    <h1>Oil Intelligence Pro+</h1>
+    <p class="small">GPS + Supabase + Multi System</p>
+  </div>
+
+  <!-- STATUS -->
+  <div class="card">
+
+    <div class="flex">
+      <div>
+        <b>Engine Core</b>
+        <div class="small">Live GPS Tracking</div>
+      </div>
+      <div id="status" class="badge safe">AMAN</div>
+    </div>
+
+    <div style="margin-top:10px">
+      KM: <b id="km">0</b><br>
+      Sisa: <b id="sisa">3000</b> km
+    </div>
+
+    <div class="engine-wrap">
+      <div class="engine" id="engine"></div>
+    </div>
+
+    <div class="small" id="gps">GPS: waiting...</div>
+    <div class="small" id="estimasi"></div>
+
+  </div>
+
+  <!-- INPUT -->
+  <div class="card">
+
+    <input type="text" id="motorId" placeholder="Motor ID (multi user)">
+
+    <button class="primary" onclick="startGPS()">
+      📡 Start GPS Tracking
+    </button>
+
+    <button class="danger" onclick="resetOli()">
+      🛢️ Reset Oli
+    </button>
+
+  </div>
+
+</div>
+
+<script type="module">
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm";
+
+const supabase = createClient(
+  "https://wepqievfgfqsoilynrhc.supabase.co",
+  "sb_publishable_AUDqRGYqJi1pA7Y_QOIa-A_bIz-_zI1"
+);
+
+const LIMIT = 3000;
+
+let totalKm = 0;
+let lastLat = null;
+let lastLng = null;
+let motorId = "default";
+
+/* ================= LOAD ================= */
+async function load(){
+
+  motorId = document.getElementById("motorId").value || "default";
+
+  const { data } = await supabase
+    .from("massage_record")
+    .select("*")
+    .eq("id", 1)
+    .single();
+
+  if(data) totalKm = data.total_km;
+
+  render();
+}
+
+window.startGPS = function () {
+
+  motorId = document.getElementById("motorId").value || "default";
+
+  if (!navigator.geolocation) {
+    alert("GPS tidak support");
+    return;
+  }
+
+  navigator.geolocation.watchPosition(async (pos) => {
+
+    let lat = pos.coords.latitude;
+    let lng = pos.coords.longitude;
+
+    document.getElementById("gps").innerText =
+      `GPS: ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+
+    if (lastLat && lastLng) {
+
+      let dist = calcDistance(lastLat, lastLng, lat, lng);
+
+      if (dist > 0.05) { // 50 meter
+        totalKm += dist;
+
+        await supabase
+          .from("massage_record")
+          .update({ total_km: totalKm })
+          .eq("id", 1);
+
+        render();
+
+        // 🔥 hook WhatsApp reminder logic
+        if (LIMIT - totalKm <= 300) {
+          console.log("WA ALERT: H-3 reminder");
+        }
+      }
+    }
+
+    lastLat = lat;
+    lastLng = lng;
+
+  });
+};
+
+function calcDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+
+  const a =
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1*Math.PI/180) *
+    Math.cos(lat2*Math.PI/180) *
+    Math.sin(dLon/2) * Math.sin(dLon/2);
+
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+window.resetOli = async function () {
+
+  await supabase.from("massage_history").insert([
+    { total_km: totalKm, reset_at: new Date() }
+  ]);
+
+  await supabase.rpc("keep_last_history");
+
+  totalKm = 0;
+
+  await supabase
+    .from("massage_record")
+    .update({ total_km: 0 })
+    .eq("id", 1);
+
+  render();
+};
+
+/* ================= UI ================= */
+function render(){
+
+  let sisa = LIMIT - totalKm;
+  if(sisa < 0) sisa = 0;
+
+  document.getElementById("km").innerText = totalKm.toFixed(2);
+  document.getElementById("sisa").innerText = sisa.toFixed(2);
+
+  let percent = (totalKm / LIMIT) * 100;
+  if(percent > 100) percent = 100;
+
+  document.getElementById("engine").style.width = percent + "%";
+
+  let status = document.getElementById("status");
+
+  if(sisa > 700){
+    status.className = "badge safe";
+    status.innerText = "AMAN";
+  } else if(sisa > 200){
+    status.className = "badge warn";
+    status.innerText = "HAMPIR";
+  } else {
+    status.className = "badge dangerStatus";
+    status.innerText = "KRITIS";
+  }
+
+  document.getElementById("estimasi").innerText =
+    "Estimasi sisa ± " + Math.ceil(sisa/120) + " hari";
+}
+
+load();
+
+</script>
+
+</body>
+</html>
