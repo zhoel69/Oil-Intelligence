@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+<title>Oil Intelligence System</title>
+
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+<style>
+*{
+  margin:0;
+  padding:0;
+  box-sizing:border-box;
+  font-family:'Inter', sans-serif;
+  user-select:none;
+  -webkit-user-select:none;
+}
+
+html, body{
+  background:#f5f5f7;
+  display:flex;
+  justify-content:center;
+  padding:20px;
+  color:#1d1d1f;
+  touch-action: manipulation;
+}
+
+.app{
+  width:100%;
+  max-width:420px;
+}
+
+.header{
+  text-align:center;
+  margin-bottom:15px;
+}
+
+.header h1{
+  font-size:24px;
+  font-weight:700;
+}
+
+.card{
+  background:rgba(255,255,255,0.85);
+  backdrop-filter:blur(20px);
+  border-radius:18px;
+  padding:16px;
+  margin-bottom:12px;
+  box-shadow:0 10px 25px rgba(0,0,0,0.06);
+}
+
+input{
+  width:100%;
+  padding:12px;
+  border-radius:12px;
+  border:1px solid #e5e5e7;
+  margin-top:8px;
+  user-select:text;
+}
+
+button{
+  width:100%;
+  padding:12px;
+  margin-top:10px;
+  border:none;
+  border-radius:12px;
+  font-weight:600;
+  cursor:pointer;
+}
+
+.primary{ background:#0071e3; color:white; }
+.danger{ background:#ff3b30; color:white; }
+
+.badge{
+  padding:6px 12px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:600;
+}
+
+.safe{ background:#e7f6ec; color:#1e8e3e; }
+.warn{ background:#fff4e5; color:#b06000; }
+.dangerStatus{ background:#ffecec; color:#d93025; }
+
+.engine-wrap{
+  height:14px;
+  background:#e5e5e7;
+  border-radius:999px;
+  overflow:hidden;
+  margin-top:10px;
+}
+
+.engine{
+  height:100%;
+  width:0%;
+  background:linear-gradient(90deg,#34c759,#0071e3,#ff3b30);
+  transition:0.5s;
+}
+
+.small{
+  font-size:12px;
+  color:#8e8e93;
+}
+
+.flex{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
+</style>
+</head>
+
+<body>
+
+<div class="app">
+
+  <div class="header">
+    <h1>Oil Intelligence</h1>
+    <p class="small">Shell AX7 • Supabase Sync</p>
+  </div>
+
+  <!-- STATUS -->
+  <div class="card">
+
+    <div class="flex">
+      <div>
+        <div style="font-weight:600;">Engine Monitor</div>
+        <div class="small">Realtime Database</div>
+      </div>
+
+      <div id="status" class="badge safe">AMAN</div>
+    </div>
+
+    <div style="margin-top:10px">
+      KM: <b id="km">0</b><br>
+      Sisa: <b id="sisa">3000</b> km
+    </div>
+
+    <div class="engine-wrap">
+      <div class="engine" id="engine"></div>
+    </div>
+
+    <div class="small" id="estimasi"></div>
+
+  </div>
+
+  <!-- INPUT -->
+  <div class="card">
+
+    <input type="number" id="kmInput" placeholder="Input KM perjalanan">
+
+    <button class="primary" onclick="addKm()">
+      🚀 Tambah Perjalanan
+    </button>
+
+    <button class="danger" onclick="resetOli()">
+      🛢️ Reset (Ganti Oli)
+    </button>
+
+  </div>
+
+  <!-- HISTORY -->
+  <div class="card">
+    <div style="font-weight:600;">History Terakhir</div>
+    <div class="small" id="history">Belum ada data</div>
+  </div>
+
+</div>
+
+<script type="module">
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm";
+
+/* ================= SUPABASE ================= */
+const supabase = createClient(
+  "https://wepqievfgfqsoilynrhc.supabase.co",
+  "sb_publishable_AUDqRGYqJi1pA7Y_QOIa-A_bIz-_zI1"
+);
+
+const LIMIT = 3000;
+let totalKm = 0;
+
+/* ================= GLOBAL FUNCTIONS (FIX BUTTON BUG) ================= */
+window.addKm = async function () {
+
+  const input = document.getElementById("kmInput");
+  const km = parseInt(input.value);
+
+  if (!km || km <= 0) {
+    alert("KM tidak valid");
+    return;
+  }
+
+  totalKm += km;
+  input.value = "";
+
+  await supabase
+    .from("massage_record")
+    .update({ total_km: totalKm })
+    .eq("id", 1);
+
+  render();
+};
+
+window.resetOli = async function () {
+
+  if (!confirm("Sudah ganti oli?")) return;
+
+  await supabase.from("massage_history").insert([
+    { total_km: totalKm }
+  ]);
+
+  await supabase.rpc("keep_last_history");
+
+  totalKm = 0;
+
+  await supabase
+    .from("massage_record")
+    .update({ total_km: 0 })
+    .eq("id", 1);
+
+  render();
+  loadHistory();
+};
+
+/* ================= LOAD ================= */
+async function load() {
+
+  const { data } = await supabase
+    .from("massage_record")
+    .select("*")
+    .limit(1)
+    .single();
+
+  if (data) {
+    totalKm = data.total_km || 0;
+  }
+
+  render();
+  loadHistory();
+}
+
+/* ================= RENDER ================= */
+function render() {
+
+  let sisa = LIMIT - totalKm;
+  if (sisa < 0) sisa = 0;
+
+  document.getElementById("km").innerText = totalKm;
+  document.getElementById("sisa").innerText = sisa;
+
+  let percent = (totalKm / LIMIT) * 100;
+  if (percent > 100) percent = 100;
+
+  document.getElementById("engine").style.width = percent + "%";
+
+  let status = document.getElementById("status");
+
+  if (sisa > 700) {
+    status.className = "badge safe";
+    status.innerText = "AMAN";
+  } else if (sisa > 200) {
+    status.className = "badge warn";
+    status.innerText = "HAMPIR GANTI";
+  } else {
+    status.className = "badge dangerStatus";
+    status.innerText = "WAJIB GANTI";
+  }
+
+  let hari = Math.ceil(sisa / 120);
+
+  document.getElementById("estimasi").innerText =
+    "Estimasi ± " + hari + " hari lagi";
+}
+
+/* ================= HISTORY ================= */
+async function loadHistory() {
+
+  const { data } = await supabase
+    .from("massage_history")
+    .select("*")
+    .order("reset_at", { ascending: false })
+    .limit(1);
+
+  if (!data || data.length === 0) {
+    document.getElementById("history").innerText = "Belum ada history";
+    return;
+  }
+
+  const h = data[0];
+
+  document.getElementById("history").innerHTML =
+    `KM terakhir: ${h.total_km}<br>Reset: ${new Date(h.reset_at).toLocaleString()}`;
+}
+
+/* ================= INIT ================= */
+load();
+
+</script>
+
+</body>
+</html>
